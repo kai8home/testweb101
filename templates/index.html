@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>新北市垃圾車即時查詢</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "Noto Sans TC", system-ui, sans-serif; background: #f4f6f9; color: #222; }
+
+  header {
+    background: linear-gradient(135deg, #1a7f4e, #27ae60);
+    color: #fff;
+    padding: 14px 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    box-shadow: 0 2px 6px rgba(0,0,0,.2);
+  }
+  header h1 { font-size: 1.2rem; }
+  header .tag {
+    margin-left: auto;
+    font-size: .75rem;
+    background: rgba(255,255,255,.2);
+    padding: 3px 8px;
+    border-radius: 12px;
+  }
+
+  #layout { display: flex; height: calc(100vh - 54px); }
+
+  /* ── Sidebar ── */
+  #sidebar {
+    width: 360px;
+    min-width: 300px;
+    overflow-y: auto;
+    background: #fff;
+    border-right: 1px solid #e0e0e0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  #locate-bar {
+    padding: 14px;
+    background: #f8f9fa;
+    border-bottom: 1px solid #e0e0e0;
+  }
+  #locate-btn {
+    width: 100%;
+    padding: 10px;
+    background: #1a7f4e;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: background .2s;
+  }
+  #locate-btn:hover { background: #155f3a; }
+  #locate-btn:disabled { background: #999; cursor: not-allowed; }
+
+  #status {
+    margin-top: 8px;
+    font-size: .82rem;
+    color: #555;
+    min-height: 18px;
+  }
+
+  #refresh-info {
+    font-size: .75rem;
+    color: #aaa;
+    padding: 4px 14px 8px;
+    border-bottom: 1px solid #eee;
+  }
+
+  .section-title {
+    font-size: .78rem;
+    font-weight: 700;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    color: #888;
+    padding: 10px 14px 4px;
+  }
+
+  /* ── Truck card ── */
+  .truck-card {
+    margin: 6px 10px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border-left: 4px solid #27ae60;
+    background: #f0faf5;
+    cursor: pointer;
+    transition: box-shadow .15s;
+  }
+  .truck-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,.12); }
+  .truck-card.realtime { border-color: #e74c3c; background: #fff5f5; }
+  .truck-card .row1 { display: flex; justify-content: space-between; align-items: flex-start; }
+  .truck-card .name { font-weight: 600; font-size: .95rem; flex: 1; }
+  .truck-card .dist { font-size: .82rem; color: #27ae60; font-weight: 600; white-space: nowrap; }
+  .truck-card.realtime .dist { color: #e74c3c; }
+  .truck-card .detail { font-size: .8rem; color: #666; margin-top: 4px; }
+  .truck-card .time-badge {
+    display: inline-block;
+    margin-top: 6px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: .75rem;
+    font-weight: 600;
+  }
+  .time-badge.soon { background: #fff3cd; color: #856404; }
+  .time-badge.later { background: #d1ecf1; color: #0c5460; }
+  .time-badge.now { background: #d4edda; color: #155724; }
+  .time-badge.realtime { background: #f8d7da; color: #721c24; }
+
+  #empty {
+    text-align: center;
+    padding: 40px 20px;
+    color: #aaa;
+    display: none;
+  }
+
+  /* ── Map ── */
+  #map { flex: 1; }
+
+  /* ── Demo banner ── */
+  #demo-banner {
+    display: none;
+    background: #fff3cd;
+    color: #856404;
+    text-align: center;
+    font-size: .8rem;
+    padding: 6px;
+    border-bottom: 1px solid #ffc107;
+  }
+
+  @media (max-width: 640px) {
+    #layout { flex-direction: column; }
+    #sidebar { width: 100%; height: 45vh; min-width: unset; border-right: none; border-bottom: 1px solid #ddd; }
+    #map { height: 55vh; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <span style="font-size:1.5rem">🗑</span>
+  <h1>新北市垃圾車即時查詢</h1>
+  <span class="tag" id="now-time">--:--</span>
+</header>
+
+<div id="demo-banner">⚠ 目前顯示離線示範資料，實際使用需連線至新北市開放資料平台</div>
+
+<div id="layout">
+  <div id="sidebar">
+    <div id="locate-bar">
+      <button id="locate-btn" onclick="locate()">📍 取得我的位置</button>
+      <div id="status">按下按鈕以偵測目前位置</div>
+    </div>
+    <div id="refresh-info"></div>
+
+    <div id="realtime-section" style="display:none">
+      <div class="section-title">🔴 附近行駛中的垃圾車</div>
+      <div id="realtime-list"></div>
+    </div>
+
+    <div id="schedule-section" style="display:none">
+      <div class="section-title">📅 今日最近收運點（未來 3 小時）</div>
+      <div id="schedule-list"></div>
+    </div>
+
+    <div id="empty">
+      <div style="font-size:2rem">🎉</div>
+      <div style="margin-top:8px">今日此區附近 3 小時內無收運行程</div>
+      <div style="font-size:.8rem;margin-top:4px;color:#bbb">請明日再查詢，或擴大查詢範圍</div>
+    </div>
+  </div>
+
+  <div id="map"></div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const REFRESH_INTERVAL = 60_000; // ms
+
+let map, userMarker, stopMarkers = [], truckMarkers = [];
+let userLat = null, userLon = null;
+let refreshTimer = null;
+
+// ── Map init ──────────────────────────────────────────────────────────────────
+map = L.map('map').setView([25.014, 121.463], 14);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '© OpenStreetMap contributors',
+  maxZoom: 19,
+}).addTo(map);
+
+const userIcon = L.divIcon({
+  html: '<div style="width:16px;height:16px;background:#2196f3;border:3px solid #fff;border-radius:50%;box-shadow:0 0 6px rgba(33,150,243,.6)"></div>',
+  iconAnchor: [8, 8], className: ''
+});
+const stopIcon = L.divIcon({
+  html: '<div style="width:20px;height:20px;background:#27ae60;border:2px solid #fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px">🗑</div>',
+  iconAnchor: [10, 10], className: ''
+});
+const truckIcon = L.divIcon({
+  html: '<div style="width:24px;height:24px;background:#e74c3c;border:2px solid #fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px">🚛</div>',
+  iconAnchor: [12, 12], className: ''
+});
+const nearestIcon = L.divIcon({
+  html: '<div style="width:26px;height:26px;background:#f39c12;border:3px solid #fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px">🗑</div>',
+  iconAnchor: [13, 13], className: ''
+});
+
+// ── Clock ─────────────────────────────────────────────────────────────────────
+function updateClock() {
+  document.getElementById('now-time').textContent =
+    new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
+}
+updateClock();
+setInterval(updateClock, 30_000);
+
+// ── Locate ────────────────────────────────────────────────────────────────────
+function locate() {
+  const btn = document.getElementById('locate-btn');
+  const status = document.getElementById('status');
+  if (!navigator.geolocation) {
+    status.textContent = '此瀏覽器不支援定位功能';
+    return;
+  }
+  btn.disabled = true;
+  status.textContent = '定位中…';
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      userLat = pos.coords.latitude;
+      userLon = pos.coords.longitude;
+      status.textContent = `位置：${userLat.toFixed(5)}, ${userLon.toFixed(5)}`;
+      btn.disabled = false;
+      placeUserMarker(userLat, userLon);
+      fetchAndRender();
+      clearInterval(refreshTimer);
+      refreshTimer = setInterval(fetchAndRender, REFRESH_INTERVAL);
+    },
+    err => {
+      status.textContent = `定位失敗：${err.message}`;
+      btn.disabled = false;
+    },
+    { enableHighAccuracy: true, timeout: 15000 }
+  );
+}
+
+function placeUserMarker(lat, lon) {
+  if (userMarker) userMarker.remove();
+  userMarker = L.marker([lat, lon], { icon: userIcon })
+    .addTo(map)
+    .bindPopup('📍 您的位置');
+  map.setView([lat, lon], 15);
+}
+
+// ── Fetch & render ────────────────────────────────────────────────────────────
+async function fetchAndRender() {
+  if (userLat === null) return;
+  try {
+    const res = await fetch(`/api/nearest?lat=${userLat}&lon=${userLon}`);
+    const data = await res.json();
+    renderResults(data);
+    document.getElementById('refresh-info').textContent =
+      `最後更新：${new Date().toLocaleTimeString('zh-TW')}　每 60 秒自動更新`;
+    if (data.demo) document.getElementById('demo-banner').style.display = 'block';
+  } catch(e) {
+    document.getElementById('status').textContent = '查詢失敗，請稍後再試';
+  }
+}
+
+function timeBadge(mins) {
+  if (mins <= 5)  return `<span class="time-badge now">⚡ 約 ${mins} 分鐘後到</span>`;
+  if (mins <= 30) return `<span class="time-badge soon">⏰ 約 ${mins} 分鐘後到</span>`;
+  return `<span class="time-badge later">🕐 約 ${mins} 分鐘後到</span>`;
+}
+
+function fmtDist(m) {
+  return m < 1000 ? `${m} m` : `${(m/1000).toFixed(1)} km`;
+}
+
+function renderResults(data) {
+  clearMarkers();
+
+  const rtSection = document.getElementById('realtime-section');
+  const scSection = document.getElementById('schedule-section');
+  const emptyDiv = document.getElementById('empty');
+  const rtList = document.getElementById('realtime-list');
+  const scList = document.getElementById('schedule-list');
+
+  // Real-time trucks
+  if (data.nearby_trucks && data.nearby_trucks.length) {
+    rtSection.style.display = 'block';
+    rtList.innerHTML = data.nearby_trucks.map((t, i) => `
+      <div class="truck-card realtime" onclick="flyTo(${t.lat},${t.lon})">
+        <div class="row1">
+          <span class="name">🚛 ${t.route}</span>
+          <span class="dist">${fmtDist(t.distance_m)}</span>
+        </div>
+        <div class="detail">${t.status} ・ 更新：${t.updated}</div>
+        <span class="time-badge realtime">即時追蹤</span>
+      </div>`).join('');
+    data.nearby_trucks.forEach(t => {
+      const m = L.marker([t.lat, t.lon], { icon: truckIcon })
+        .addTo(map)
+        .bindPopup(`🚛 ${t.route}<br>${t.status}`);
+      truckMarkers.push(m);
+    });
+  } else {
+    rtSection.style.display = 'none';
+  }
+
+  // Scheduled stops
+  if (data.nearest_stops && data.nearest_stops.length) {
+    scSection.style.display = 'block';
+    emptyDiv.style.display = 'none';
+    scList.innerHTML = data.nearest_stops.map((s, i) => `
+      <div class="truck-card" onclick="flyTo(${s.lat},${s.lon})">
+        <div class="row1">
+          <span class="name">${s.stop}</span>
+          <span class="dist">${fmtDist(s.distance_m)}</span>
+        </div>
+        <div class="detail">${s.district} ・ 收運時間 ${s.time}</div>
+        ${timeBadge(s.minutes_until)}
+      </div>`).join('');
+
+    data.nearest_stops.forEach((s, i) => {
+      const icon = i === 0 ? nearestIcon : stopIcon;
+      const m = L.marker([s.lat, s.lon], { icon })
+        .addTo(map)
+        .bindPopup(`🗑 ${s.stop}<br>${s.district} ・ ${s.time}<br>距離：${fmtDist(s.distance_m)}`);
+      stopMarkers.push(m);
+    });
+
+    // Auto-open the nearest stop popup
+    if (stopMarkers.length) stopMarkers[0].openPopup();
+  } else {
+    scSection.style.display = 'none';
+    emptyDiv.style.display = 'block';
+  }
+}
+
+function clearMarkers() {
+  stopMarkers.forEach(m => m.remove());
+  truckMarkers.forEach(m => m.remove());
+  stopMarkers = [];
+  truckMarkers = [];
+}
+
+function flyTo(lat, lon) {
+  map.flyTo([lat, lon], 16, { duration: 0.8 });
+}
+</script>
+</body>
+</html>
