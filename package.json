@@ -1,0 +1,21 @@
+{
+  "name": "testweb101",
+  "version": "1.0.0",
+  "description": "",
+  "main": "garbage_truck.js",
+  "scripts": {
+    "start":      "node garbage_truck.js",
+    "start:demo": "node garbage_truck.js --demo",
+    "weather":    "node weather.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "http://local_proxy@127.0.0.1:45231/git/kai8home/testweb101"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^5.2.1"
+  }
+}
